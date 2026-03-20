@@ -708,31 +708,20 @@ http://localhost:8080/docs
 
 ## Security
 
-See [docs/security.md](docs/security.md) for the full risk assessment. All identified findings have been remediated or formally accepted:
+See [docs/security.md](docs/security.md) for the full threat model and risk assessment.
 
-| ID | Severity | Finding | Status |
-|----|----------|---------|--------|
-| C1 | CRITICAL | Timing side-channel on API key comparison | Fixed — `crypto.timingSafeEqual` |
-| C2 | CRITICAL | Async authentication gap in WebSocket handler | Fixed — synchronous check before socket registration |
-| H1 | HIGH | NaN integer injection via query parameters | Fixed — explicit radix + `Number.isFinite` |
-| H2 | HIGH | Stack trace leakage from unhandled errors | Fixed — global `setErrorHandler` sanitises 5xx |
-| H3 | HIGH | Missing 404 — `getGroup()` throws cascade to 500 | Fixed — `resolveGroup()` wrapper |
-| H4 | HIGH | SSRF via unvalidated relay URLs | Fixed — `wss://`/`ws://` protocol allowlist |
-| M1 | MEDIUM | API key logged in plaintext via `?key=` query string | Fixed — Pino `req` serializer redacts to `[REDACTED]` |
-| M2 | MEDIUM | SQL table name string interpolation | Fixed — allowlist regex guard in store constructors |
-| M3 | MEDIUM | No explicit request body size limit | Fixed — `bodyLimit: 65536` (64 KiB) |
-| M4 | MEDIUM | No rate limiting | Accepted — local daemon; document strong key selection |
-| L1 | LOW | Distinct 401 messages reveal auth state | Fixed — unified `"Unauthorized"` for all 401 paths |
-| L2 | LOW | Dynamic `import()` in hot path | Fixed — static import at module load |
-| L3 | LOW | No CORS policy | Accepted — correct default for a local daemon |
+### Accepted risks
+
+- **No rate limiting** — marmot-server is a local daemon accessed by a single trusted client. If exposed beyond a local network, place a rate-limiting reverse proxy in front and use an API key of at least 32 random bytes.
+- **No CORS policy** — the absence of CORS headers is the correct default for a local daemon; browsers block cross-origin requests by the same-origin policy.
 
 ### Operational security checklist
 
 - Set `API_KEY` to at least 32 random bytes: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
 - Do **not** expose port 8080 to the public internet — bind to a private network
 - Protect the `/data` volume — the SQLite file contains the private key and message history in plaintext
-- Put a TLS-terminating reverse proxy (Caddy, nginx) in front for production deployments; this also ensures the WS `?key=` token (already redacted from server logs) is not visible on the wire
-- Review structured JSON logs for `500` responses (`"Unhandled server error"` log entries with `reqId`)
+- Put a TLS-terminating reverse proxy (Caddy, nginx) in front for production deployments to prevent the WS `?key=` token from being visible on the wire
+- Review structured JSON logs for `500` responses (`"Unhandled server error"` entries include a `reqId` for correlation)
 
 ---
 

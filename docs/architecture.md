@@ -440,7 +440,7 @@ Request arrives
 
 The token comparison uses `crypto.timingSafeEqual` (via the exported `timingSafeCompare` helper) to prevent timing side-channel attacks. Both failure paths return the same `"Unauthorized"` message to avoid giving attackers a coarse oracle on which step failed.
 
-WebSocket connections cannot send arbitrary HTTP headers in all environments (browsers enforce this). The `/v1/events` route accepts the API key as a `?key=<API_KEY>` query parameter. The check is **synchronous** — it is the very first thing the handler does, before the socket is added to the `clients` set. This eliminates an earlier async gap where a dynamic `import()` call created a window during which a connection existed without being validated.
+WebSocket connections cannot send arbitrary HTTP headers in all environments (browsers enforce this). The `/v1/events` route accepts the API key as a `?key=<API_KEY>` query parameter. The check is **synchronous** — it is the first thing the handler does, before the socket is added to the `clients` set.
 
 The `?key=` token is redacted to `[REDACTED]` in all Pino log output by a custom `req` serializer configured at server construction time, so the key never appears in log files regardless of transport.
 
@@ -448,21 +448,7 @@ The `?key=` token is redacted to `[REDACTED]` in all Pino log output by a custom
 
 ## Security Considerations
 
-For the complete risk assessment — every finding, its severity, the fix applied, and residual risk — see [docs/security.md](security.md).
-
-### Application-layer protections implemented
-
-| Protection | Implementation |
-|-----------|---------------|
-| Constant-time API key comparison | `crypto.timingSafeEqual` via `timingSafeCompare` in `auth.ts` |
-| Synchronous WebSocket auth (no async gap) | Static import; auth runs before socket enters `clients` set |
-| `?key=` token redacted from access logs | Pino `req` serializer in Fastify constructor |
-| 5xx errors sanitised before reaching caller | Global `setErrorHandler`; full error logged server-side with `reqId` |
-| Clean 404 for unknown groups | `resolveGroup()` wrapper in `groups.ts` and `messages.ts` |
-| SSRF prevention on relay URL input | `isValidRelayUrl()` protocol allowlist (`wss://` / `ws://` only) |
-| SQL identifier injection prevention | Allowlist regex in `SqliteKvStore` / `SqliteBlobStore` constructors |
-| Explicit request body cap | `bodyLimit: 65536` (64 KiB) in Fastify constructor |
-| Unified 401 response message | Same `"Unauthorized"` for all auth failures |
+See [docs/security.md](security.md) for the full threat model and risk assessment.
 
 ### What marmot-server protects (protocol layer)
 
