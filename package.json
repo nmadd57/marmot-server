@@ -1,0 +1,30 @@
+{
+  "name": "marmot-server",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Local Docker server providing a REST API for the Marmot protocol",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@fastify/swagger": "^9.0.0",
+    "@fastify/swagger-ui": "^5.0.0",
+    "@fastify/websocket": "^11.0.0",
+    "@internet-privacy/marmot-ts": "^0.4.0",
+    "@noble/hashes": "^2.0.1",
+    "applesauce-core": "^5.1.0",
+    "better-sqlite3": "^12.0.0",
+    "debug": "^4.4.3",
+    "fastify": "^5.0.0",
+    "nostr-tools": "^2.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.0.0",
+    "@types/debug": "^4.1.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}
