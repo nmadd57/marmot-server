@@ -1,0 +1,22 @@
+services:
+  marmot-server:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data
+    environment:
+      # Optional API key — if set, all requests must include:
+      #   HTTP:      Authorization: Bearer <key>
+      #   WebSocket: ws://localhost:8080/v1/events?key=<key>
+      # API_KEY: "change-me"
+
+      # Comma-separated default Nostr relays
+      DEFAULT_RELAYS: "wss://relay.damus.io,wss://nos.lol"
+
+      # SQLite database path (inside the container)
+      DB_PATH: "/data/marmot.db"
+
+      # Logging verbosity: trace | debug | info | warn | error
+      LOG_LEVEL: "info"
+    restart: unless-stopped

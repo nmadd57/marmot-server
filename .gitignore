@@ -1,0 +1,14 @@
+.claude/
+*scratch*
+*.env
+*.config
+*.har
+*secret*
+terraform.tfvars
+*.api
+node_modules/
+dist/
+*.db
+*.db-shm
+*.db-wal
+data/
