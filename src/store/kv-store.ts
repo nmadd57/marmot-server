@@ -58,33 +58,7 @@ export class SqliteKvStore<T> {
     db.exec(
       `CREATE TABLE IF NOT EXISTS "${tableName}" (key TEXT PRIMARY KEY, value TEXT NOT NULL)`
     );
-    this.get = db.prepare<[string], { value: string }>(
-      `SELECT value FROM "${tableName}" WHERE key = ?`
-    ).get.bind(
-      db.prepare<[string], { value: string }>(
-        `SELECT value FROM "${tableName}" WHERE key = ?`
-      )
-    );
-    this.set = db.prepare(
-      `INSERT OR REPLACE INTO "${tableName}" (key, value) VALUES (?, ?)`
-    ).run.bind(
-      db.prepare(
-        `INSERT OR REPLACE INTO "${tableName}" (key, value) VALUES (?, ?)`
-      )
-    );
-    this.del = db.prepare(`DELETE FROM "${tableName}" WHERE key = ?`).run.bind(
-      db.prepare(`DELETE FROM "${tableName}" WHERE key = ?`)
-    );
-    this.clearAll = db.prepare(`DELETE FROM "${tableName}"`).run.bind(
-      db.prepare(`DELETE FROM "${tableName}"`)
-    );
-    this.allKeys = db.prepare<[], { key: string }>(
-      `SELECT key FROM "${tableName}"`
-    ).all.bind(
-      db.prepare<[], { key: string }>(`SELECT key FROM "${tableName}"`)
-    );
 
-    // Re-bind correctly using the same prepared statements
     const getStmt = db.prepare<[string], { value: string }>(
       `SELECT value FROM "${tableName}" WHERE key = ?`
     );
@@ -98,15 +72,9 @@ export class SqliteKvStore<T> {
     );
 
     this.get = (key) => getStmt.get(key);
-    this.set = (key, value) => {
-      setStmt.run(key, value);
-    };
-    this.del = (key) => {
-      delStmt.run(key);
-    };
-    this.clearAll = () => {
-      clearStmt.run();
-    };
+    this.set = (key, value) => { setStmt.run(key, value); };
+    this.del = (key) => { delStmt.run(key); };
+    this.clearAll = () => { clearStmt.run(); };
     this.allKeys = () => keysStmt.all();
   }
 

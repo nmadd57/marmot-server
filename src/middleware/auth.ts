@@ -2,7 +2,7 @@ import type { FastifyRequest, FastifyReply, HookHandlerDoneFunction } from "fast
 import { timingSafeEqual } from "crypto";
 import { config } from "../config.js";
 
-const UNPROTECTED = new Set(["/health", "/docs", "/docs/json", "/docs/yaml"]);
+const UNPROTECTED = new Set(["/health", "/docs", "/docs/json", "/docs/yaml", "/api/v1/check"]);
 
 /**
  * Constant-time string comparison to prevent timing side-channel attacks.

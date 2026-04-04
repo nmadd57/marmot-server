@@ -12,3 +12,5 @@ dist/
 *.db-shm
 *.db-wal
 data/
+*.private
+*.key
