@@ -181,6 +181,15 @@ export async function signalRoutes(
       res.write(": signal-cli-compat connected\n\n");
 
       const onEvent = (evt: ServerEvent) => {
+        // If SIGNAL_ALLOWED_USERS is set, drop messages from non-listed senders.
+        // Group lifecycle events (join/leave/create) are always forwarded.
+        if (
+          evt.type === "message" &&
+          config.allowedUsers.length > 0 &&
+          !config.allowedUsers.includes(evt.message.sender)
+        ) {
+          return;
+        }
         const notification = formatSseEnvelope(evt, service.pubkey);
         if (notification) write(notification);
       };

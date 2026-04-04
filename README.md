@@ -56,6 +56,8 @@ SIGNAL_HTTP_URL=http://localhost:8080
 SIGNAL_ACCOUNT=<pubkey from /v1/identity>
 # If API_KEY is set:
 SIGNAL_API_KEY=change-me
+# Optional: only forward messages from these pubkeys to the agent (npub or hex, comma-separated)
+SIGNAL_ALLOWED_USERS=npub1...,npub1...
 ```
 
 That's it. hermes-agent's `send`, `sendTyping`, `getContact`, `listGroups`, `getGroup`, and SSE receive stream all work out of the box.
@@ -103,6 +105,7 @@ curl http://localhost:8080/v1/groups
 | `LOG_LEVEL` | `info` | `trace` \| `debug` \| `info` \| `warn` \| `error` |
 | `IDENTITY_KEY` | _(unset)_ | Pin a keypair: `nsec1…` bech32 or 64-char hex. Overwrites stored key on startup. |
 | `AUTO_ACCEPT_FROM` | _(unset)_ | Comma-separated npubs/hex pubkeys whose group invitations are auto-accepted. |
+| `SIGNAL_ALLOWED_USERS` | _(unset)_ | Comma-separated npubs/hex pubkeys allowed to send messages to the agent via SSE. Messages from all other senders are silently dropped. When unset, all senders are forwarded. Mirrors `TELEGRAM_ALLOWED_USERS` / `SLACK_ALLOWED_USERS` in hermes-agent. |
 
 ---
 

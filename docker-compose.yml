@@ -29,4 +29,10 @@ services:
       # Optional: comma-separated npubs (or 64-char hex pubkeys) whose incoming
       # group invitations are automatically accepted without a manual API call.
       # AUTO_ACCEPT_FROM: "npub1...,npub1..."
+
+      # Optional: comma-separated npubs (or 64-char hex pubkeys) allowed to send
+      # messages to the agent via the SSE stream. Messages from all other senders
+      # are silently dropped. Mirrors TELEGRAM_ALLOWED_USERS / SLACK_ALLOWED_USERS.
+      # When unset, all senders are forwarded.
+      # SIGNAL_ALLOWED_USERS: "npub1...,npub1..."
     restart: unless-stopped

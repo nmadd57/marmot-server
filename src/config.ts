@@ -1,7 +1,7 @@
 import { decode as nip19Decode } from "nostr-tools/nip19";
 import { bytesToHex } from "@noble/hashes/utils.js";
 
-function parseAutoAcceptFrom(raw: string | undefined): string[] {
+function parsePubkeyList(raw: string | undefined, varName: string): string[] {
   if (!raw) return [];
   return raw
     .split(",")
@@ -10,11 +10,11 @@ function parseAutoAcceptFrom(raw: string | undefined): string[] {
     .map((s) => {
       if (s.startsWith("npub")) {
         const decoded = nip19Decode(s);
-        if (decoded.type !== "npub") throw new Error(`AUTO_ACCEPT_FROM: expected npub, got ${decoded.type}`);
+        if (decoded.type !== "npub") throw new Error(`${varName}: expected npub, got ${decoded.type}`);
         return decoded.data as string;
       }
       if (/^[0-9a-fA-F]{64}$/.test(s)) return s.toLowerCase();
-      throw new Error(`AUTO_ACCEPT_FROM: invalid value "${s}" — expected npub or 64-char hex`);
+      throw new Error(`${varName}: invalid value "${s}" — expected npub or 64-char hex`);
     });
 }
 
@@ -40,5 +40,12 @@ export const config = {
    * invites are automatically accepted without requiring a manual API call.
    * Example: AUTO_ACCEPT_FROM=npub1abc...,npub1xyz...
    */
-  autoAcceptFrom: parseAutoAcceptFrom(process.env.AUTO_ACCEPT_FROM),
+  autoAcceptFrom: parsePubkeyList(process.env.AUTO_ACCEPT_FROM, "AUTO_ACCEPT_FROM"),
+  /**
+   * Comma-separated list of npubs (or hex pubkeys) whose messages are forwarded
+   * to the signal-cli SSE stream. Messages from any other sender are silently
+   * dropped. When unset, all messages are forwarded (no filtering).
+   * Mirrors the TELEGRAM_ALLOWED_USERS / SLACK_ALLOWED_USERS pattern in hermes-agent.
+   */
+  allowedUsers: parsePubkeyList(process.env.SIGNAL_ALLOWED_USERS, "SIGNAL_ALLOWED_USERS"),
 };
