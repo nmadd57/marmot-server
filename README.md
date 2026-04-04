@@ -17,6 +17,7 @@ A self-hosted Docker container that exposes the [Marmot protocol](https://github
   - [Invites](#invites)
   - [Real-time Events (WebSocket)](#real-time-events-websocket)
 - [WebSocket Event Schema](#websocket-event-schema)
+- [signal-cli Compatible API](#signal-cli-compatible-api)
 - [Typical Workflows](#typical-workflows)
 - [Data Persistence](#data-persistence)
 - [Development](#development)
@@ -110,6 +111,8 @@ All configuration is via environment variables.
 | `API_KEY` | _(unset)_ | If set, enables Bearer token authentication on all endpoints |
 | `DEFAULT_RELAYS` | `wss://relay.damus.io,wss://nos.lol` | Comma-separated list of Nostr relays used for key package publishing and group subscriptions |
 | `LOG_LEVEL` | `info` | Pino log level: `trace`, `debug`, `info`, `warn`, `error` |
+| `IDENTITY_KEY` | _(unset)_ | Deterministic identity override. Accepts a 64-char hex private key or an `nsec` bech32 string. Overwrites any existing stored key on startup. Useful for restoring a backup identity or pinning a known keypair. |
+| `AUTO_ACCEPT_FROM` | _(unset)_ | Comma-separated list of Nostr pubkeys (npub bech32 or 64-char hex) whose incoming group invitations are automatically accepted without a manual API call. |
 
 ---
 
@@ -128,6 +131,7 @@ The following paths are **always public** regardless of `API_KEY`:
 
 - `GET /health`
 - `GET /docs` (Swagger UI and its JSON/YAML spec)
+- `GET /api/v1/check` (signal-cli compat liveness probe)
 
 ### Examples
 
@@ -569,6 +573,65 @@ Emitted when a kind-1059 gift wrap addressed to this server is received and decr
 
 ---
 
+## signal-cli Compatible API
+
+marmot-server exposes a signal-cli compatible HTTP interface, allowing it to be used as a drop-in transport backend for tools built on [signal-cli](https://github.com/AsamK/signal-cli)'s HTTP daemon mode — including [hermes-agent](https://github.com/NousResearch/hermes-agent).
+
+### Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /api/v1/rpc` | JSON-RPC 2.0 — single request or batch array |
+| `GET /api/v1/events` | Server-Sent Events stream of incoming messages and group events |
+| `GET /api/v1/check` | Liveness probe (no auth required) |
+
+### Authentication
+
+Same `API_KEY` as the REST API:
+- `POST /api/v1/rpc` — `Authorization: Bearer <key>` header
+- `GET /api/v1/events` — `?key=<key>` query parameter (browser SSE compat) or `Authorization: Bearer <key>` header
+
+### Supported JSON-RPC methods
+
+| Method | Description |
+|--------|-------------|
+| `send` | Send a message to a group (primary hermes-agent method) |
+| `sendMessage` | Send a message to a group (validates groupId required) |
+| `sendTyping` | No-op (Marmot has no typing events) |
+| `sendReaction` | Send a reaction emoji; encoded as a tagged chat message |
+| `getAttachment` | Returns error — Marmot has no attachment support |
+| `getContact` | Resolve a pubkey to a display name via kind-0 profile lookup (cached 5 min) |
+| `getProfile` / `getSelfProfile` | Returns server identity info |
+| `listGroups` | List all groups (base64 group IDs) |
+| `getGroup` | Get details for a single group |
+| `createGroup` | Create a new group |
+| `updateGroup` | Add or remove members |
+| `leaveGroup` / `quitGroup` | Leave a group |
+| `deleteGroup` | Destroy a group (local purge) |
+| `listContacts` | Returns empty (Marmot has no contact store) |
+| `listDevices` | Returns a single entry for this server |
+| `listIdentities` | Returns empty |
+| `subscribeReceive` | No-op; use SSE stream for real-time delivery |
+| `unsubscribeReceive` | No-op |
+| `receive` | Returns empty; use SSE stream for real-time delivery |
+
+**Protocol notes:**
+- The `account` parameter in every request is accepted but ignored (single-identity server)
+- Group IDs are base64-encoded on the wire (signal-cli convention), converted internally to hex
+- Direct messages are not supported; `send`/`sendMessage` without a `groupId` returns success silently
+- SSE events have the shape `data: {"envelope":{...}}` matching signal-cli's wire format
+
+### hermes-agent configuration
+
+```bash
+SIGNAL_HTTP_URL=http://127.0.0.1:8080
+SIGNAL_ACCOUNT=<server-npub-or-pubkey>   # any identifier; used as "account" param
+# If API_KEY is set:
+SIGNAL_API_KEY=<key>
+```
+
+---
+
 ## Typical Workflows
 
 ### Onboarding: prepare to receive invites
@@ -694,6 +757,10 @@ src/
     messages.ts            # Send and retrieve messages
     invites.ts             # Invite lifecycle
     events.ts              # WebSocket real-time events
+    signal.ts              # signal-cli compat: POST /api/v1/rpc, GET /api/v1/events SSE
+  signal/
+    dispatcher.ts          # JSON-RPC method handlers (send, listGroups, getContact, …)
+    types.ts               # JsonRpcRequest/Response, SignalGroup, SignalEnvelope types
 ```
 
 ### Swagger UI
