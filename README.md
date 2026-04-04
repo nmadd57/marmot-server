@@ -1,55 +1,20 @@
 # marmot-server
 
-A self-hosted Docker container that exposes the [Marmot protocol](https://github.com/marmot-protocol/marmot) — MLS-encrypted group messaging over Nostr — as a REST API and WebSocket interface. Inspired by the [signal-cli](https://github.com/AsamK/signal-cli) daemon pattern.
+A drop-in replacement for [signal-cli](https://github.com/AsamK/signal-cli) that delivers end-to-end encrypted group messaging over [Marmot](https://github.com/marmot-protocol/marmot) (MLS + Nostr) instead of Signal. Any tool built on signal-cli's HTTP daemon API works without modification.
 
-## Table of Contents
-
-- [Overview](#overview)
-- [Quick Start](#quick-start)
-- [Configuration](#configuration)
-- [Authentication](#authentication)
-- [API Reference](#api-reference)
-  - [Health](#health)
-  - [Identity](#identity)
-  - [Key Packages](#key-packages)
-  - [Groups](#groups)
-  - [Messages](#messages)
-  - [Invites](#invites)
-  - [Real-time Events (WebSocket)](#real-time-events-websocket)
-- [WebSocket Event Schema](#websocket-event-schema)
-- [signal-cli Compatible API](#signal-cli-compatible-api)
-- [Typical Workflows](#typical-workflows)
-- [Data Persistence](#data-persistence)
-- [Development](#development)
-- [Architecture](#architecture)
-
----
-
-## Overview
-
-Marmot combines two protocols:
-
-| Layer | Protocol | Purpose |
-|-------|----------|---------|
-| Encryption | [MLS (RFC 9420)](https://www.rfc-editor.org/rfc/rfc9420) | Post-quantum-safe group key agreement, forward secrecy |
-| Transport | [Nostr](https://nostr.com) | Decentralized relay network for message delivery |
-
-`marmot-server` wraps the [`@internet-privacy/marmot-ts`](https://www.npmjs.com/package/@internet-privacy/marmot-ts) SDK and manages the full lifecycle:
-
-- Generating and persisting a Nostr identity (keypair)
-- Publishing and rotating MLS key packages so others can invite you to groups
-- Creating groups, inviting members, removing members
-- Sending and receiving end-to-end encrypted messages
-- Accepting / declining incoming group invitations (gift-wrapped Welcome messages)
-- Streaming all activity over a WebSocket for real-time clients
-
-All state is persisted in a single SQLite database at `/data/marmot.db`.
+**Why Marmot instead of Signal?**
+- No phone number required — identity is a Nostr keypair
+- Decentralized relay network — no central server to register with
+- Post-quantum-safe group key agreement (MLS RFC 9420)
+- Self-hostable with a single Docker container and a SQLite file
 
 ---
 
 ## Quick Start
 
-### Docker Compose (recommended)
+```bash
+docker compose up -d
+```
 
 ```yaml
 # docker-compose.yml
@@ -64,740 +29,190 @@ services:
     environment:
       API_KEY: "change-me"
       DEFAULT_RELAYS: "wss://relay.damus.io,wss://nos.lol"
-      DB_PATH: "/data/marmot.db"
-      LOG_LEVEL: "info"
+      # Optional: pin a specific keypair (nsec bech32 or 64-char hex)
+      # IDENTITY_KEY: "nsec1..."
+      # Optional: auto-accept invites from these npubs
+      # AUTO_ACCEPT_FROM: "npub1...,npub1..."
     restart: unless-stopped
 ```
 
-```bash
-docker compose up -d
-```
-
-The server is ready when `GET /health` returns `{"ok":true}`.
-
-### Docker CLI
+Once running, get the server's public key — you'll need it as the "account" identifier in client config:
 
 ```bash
-docker build -t marmot-server .
-docker run -d \
-  -p 8080:8080 \
-  -v "$(pwd)/data:/data" \
-  -e API_KEY="change-me" \
-  marmot-server
+curl http://localhost:8080/v1/identity
+# {"pubkey":"83e7324c...","defaultRelays":["wss://relay.damus.io","wss://nos.lol"]}
 ```
 
-### Local Development
+Swagger UI is at `http://localhost:8080/docs`.
+
+---
+
+## hermes-agent
+
+[hermes-agent](https://github.com/NousResearch/hermes-agent) connects to marmot-server via the signal-cli HTTP API with no changes required.
 
 ```bash
-npm install
-npm run dev          # tsx watch mode
-# or
-npm run build && npm start
+SIGNAL_HTTP_URL=http://localhost:8080
+SIGNAL_ACCOUNT=<pubkey from /v1/identity>
+# If API_KEY is set:
+SIGNAL_API_KEY=change-me
 ```
 
-Swagger UI is available at `http://localhost:8080/docs`.
+That's it. hermes-agent's `send`, `sendTyping`, `getContact`, `listGroups`, `getGroup`, and SSE receive stream all work out of the box.
+
+---
+
+## OpenClaw
+
+[OpenClaw](https://docs.openclaw.ai/channels/signal) uses marmot-server as an external Signal daemon via the `httpUrl` setting.
+
+```json5
+{
+  channels: {
+    signal: {
+      enabled: true,
+      account: "<pubkey from /v1/identity>",
+      httpUrl: "http://localhost:8080",
+      dmPolicy: "disabled",        // Marmot is groups-only; no DM support
+      groupPolicy: "open",
+      historyLimit: 50,
+    },
+  },
+}
+```
+
+**If `API_KEY` is set**, add the Bearer token. OpenClaw passes it via the `Authorization` header on RPC calls and `?key=` on the SSE stream automatically when you set the token in your channel config — consult the OpenClaw docs for the token field name in your version.
+
+**Joining groups**: use Whitenoise, another Marmot client, or the REST API to create or join groups, then reference them in OpenClaw as `signal:group:<base64-group-id>`. Retrieve group IDs from:
+
+```bash
+curl http://localhost:8080/v1/groups
+```
 
 ---
 
 ## Configuration
 
-All configuration is via environment variables.
-
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `HOST` | `0.0.0.0` | Bind address |
-| `PORT` | `8080` | HTTP/WebSocket port |
-| `DB_PATH` | `/data/marmot.db` | SQLite database file path |
-| `API_KEY` | _(unset)_ | If set, enables Bearer token authentication on all endpoints |
-| `DEFAULT_RELAYS` | `wss://relay.damus.io,wss://nos.lol` | Comma-separated list of Nostr relays used for key package publishing and group subscriptions |
-| `LOG_LEVEL` | `info` | Pino log level: `trace`, `debug`, `info`, `warn`, `error` |
-| `IDENTITY_KEY` | _(unset)_ | Deterministic identity override. Accepts a 64-char hex private key or an `nsec` bech32 string. Overwrites any existing stored key on startup. Useful for restoring a backup identity or pinning a known keypair. |
-| `AUTO_ACCEPT_FROM` | _(unset)_ | Comma-separated list of Nostr pubkeys (npub bech32 or 64-char hex) whose incoming group invitations are automatically accepted without a manual API call. |
+| `PORT` | `8080` | HTTP port |
+| `DB_PATH` | `/data/marmot.db` | SQLite database path |
+| `API_KEY` | _(unset)_ | Bearer token required on all endpoints when set |
+| `DEFAULT_RELAYS` | `wss://relay.damus.io,wss://nos.lol` | Comma-separated Nostr relays |
+| `LOG_LEVEL` | `info` | `trace` \| `debug` \| `info` \| `warn` \| `error` |
+| `IDENTITY_KEY` | _(unset)_ | Pin a keypair: `nsec1…` bech32 or 64-char hex. Overwrites stored key on startup. |
+| `AUTO_ACCEPT_FROM` | _(unset)_ | Comma-separated npubs/hex pubkeys whose group invitations are auto-accepted. |
 
 ---
 
-## Authentication
+## signal-cli API
 
-Authentication is **optional**. If `API_KEY` is not set, the server is fully open.
-
-When `API_KEY` is set:
-
-- **HTTP requests**: include the header `Authorization: Bearer <API_KEY>`
-- **WebSocket**: append `?key=<API_KEY>` to the connection URL
-
-The WebSocket query-string token is necessary because the browser WebSocket API does not allow custom headers. The server redacts `?key=…` from all access log entries (replaced with `[REDACTED]`), so the key does not appear in log files. Use TLS (a reverse proxy) to prevent the token from being observed on the wire.
-
-The following paths are **always public** regardless of `API_KEY`:
-
-- `GET /health`
-- `GET /docs` (Swagger UI and its JSON/YAML spec)
-- `GET /api/v1/check` (signal-cli compat liveness probe)
-
-### Examples
-
-```bash
-# HTTP
-curl -H "Authorization: Bearer change-me" http://localhost:8080/v1/identity
-
-# WebSocket (wscat)
-wscat -c "ws://localhost:8080/v1/events?key=change-me"
-```
-
----
-
-## API Reference
-
-### Health
-
-#### `GET /health`
-
-Liveness check. Always returns 200, no auth required.
-
-**Response**
-```json
-{ "ok": true }
-```
-
----
-
-### Identity
-
-The server manages a single Nostr identity (keypair). The private key is generated on first boot and persisted in SQLite. It never changes unless the database is deleted.
-
-#### `GET /v1/identity`
-
-Returns the server's Nostr public key and the configured default relays.
-
-**Response `200`**
-```json
-{
-  "pubkey": "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
-  "defaultRelays": [
-    "wss://relay.damus.io",
-    "wss://nos.lol"
-  ]
-}
-```
-
----
-
-### Key Packages
-
-MLS key packages (Nostr kind 443) are one-time-use credential bundles that allow others to add you to a group. You must publish at least one key package before anyone can invite you to a group.
-
-#### `GET /v1/key-packages`
-
-List all locally stored key packages.
-
-**Response `200`**
-```json
-[
-  {
-    "ref": "a674efc3d8...",
-    "publishedEventIds": ["b3e1f2a..."],
-    "used": false
-  }
-]
-```
-
-| Field | Description |
-|-------|-------------|
-| `ref` | Hex-encoded key package reference (unique identifier) |
-| `publishedEventIds` | Nostr event IDs of the published kind-443 events |
-| `used` | `true` if the key package has been consumed by a Welcome |
-
-#### `POST /v1/key-packages`
-
-Create and publish a new key package to the specified relays.
-
-**Request body** (all fields optional)
-```json
-{
-  "relays": ["wss://relay.damus.io"],
-  "isLastResort": true
-}
-```
-
-| Field | Default | Description |
-|-------|---------|-------------|
-| `relays` | `DEFAULT_RELAYS` | Relays to publish to (must be valid `wss://` or `ws://` URLs) |
-| `isLastResort` | `true` | Mark as last-resort (reusable) key package |
-
-**Response `201`**
-```json
-{
-  "ref": "a674efc3d8...",
-  "publishedEventIds": ["b3e1f2a..."]
-}
-```
-
-**Response `400`** if any relay URL is not a valid `wss://` or `ws://` address.
-
-#### `POST /v1/key-packages/:ref/rotate`
-
-Deletes the key package at `:ref` from the relay and creates a fresh replacement. Use this to cycle key material periodically.
-
-**Response `200`**
-```json
-{ "ref": "c9f3ba1d2e..." }
-```
-
-#### `DELETE /v1/key-packages/:ref`
-
-Purge a key package from local storage and revoke it from relays.
-
-**Response `204`** No content.
-
----
-
-### Groups
-
-Groups are MLS groups whose state is TLS-serialized and stored in SQLite. Each group has a Nostr "group ID" (a hash of the MLS group context) used to tag events on relays.
-
-#### `GET /v1/groups`
-
-List all groups the server is a member of.
-
-**Response `200`**
-```json
-[
-  {
-    "id": "35bffd6e4a...",
-    "name": "My Group",
-    "description": "A test group",
-    "adminPubkeys": ["3bf0c63f..."],
-    "relays": ["wss://relay.damus.io"],
-    "epoch": 0
-  }
-]
-```
-
-| Field | Description |
-|-------|-------------|
-| `id` | MLS group ID (hex) |
-| `name` | Human-readable group name |
-| `description` | Group description |
-| `adminPubkeys` | Nostr pubkeys of group admins |
-| `relays` | Relays used for this group's events |
-| `epoch` | Current MLS epoch (increments on each commit) |
-
-#### `GET /v1/groups/:groupId`
-
-Get details for a single group.
-
-**Response `200`** — same shape as list item above.
-
-**Response `404`** if the group does not exist.
-
-#### `POST /v1/groups`
-
-Create a new group. The server's identity becomes the initial member.
-
-**Request body**
-```json
-{
-  "name": "My Group",
-  "description": "Optional description",
-  "relays": ["wss://relay.damus.io"],
-  "adminPubkeys": ["3bf0c63f..."]
-}
-```
-
-| Field | Required | Default | Description |
-|-------|----------|---------|-------------|
-| `name` | Yes | — | Group name |
-| `description` | No | `""` | Group description |
-| `relays` | No | `DEFAULT_RELAYS` | Relays for group events (must be valid `wss://` or `ws://` URLs) |
-| `adminPubkeys` | No | `[]` | Additional admin pubkeys |
-
-**Response `201`** — group object (same shape as GET).
-
-**Response `400`** if any relay URL is not a valid `wss://` or `ws://` address.
-
-#### `DELETE /v1/groups/:groupId`
-
-Destroy a group locally. Purges all local MLS state and message history. Does **not** send any network message — use `/leave` to signal departure to other members first.
-
-**Response `204`** No content.
-
-**Response `404`** if the group does not exist.
-
-#### `POST /v1/groups/:groupId/leave`
-
-Publish a self-remove proposal, commit it, then purge local state. Other members will process the removal on their next event ingest.
-
-**Response `204`** No content.
-
-**Response `404`** if the group does not exist.
-
-#### `POST /v1/groups/:groupId/invite`
-
-Invite a user to the group by fetching their key package from relays.
-
-**Request body**
-```json
-{
-  "pubkey": "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
-  "keyPackageEventId": "b3e1f2a..."
-}
-```
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `pubkey` | Yes | Nostr pubkey of the person to invite |
-| `keyPackageEventId` | No | Specific key package event ID to use. If omitted, the most recent key package is used. |
-
-The server fetches the invitee's kind-443 key package from the group's relays, creates an MLS Welcome message, and publishes it as a kind-1059 gift wrap addressed to the invitee.
-
-**Response `204`** No content.
-
-**Response `404`** if the group does not exist, or if no key package is found for the pubkey on the group's relays.
-
-#### `DELETE /v1/groups/:groupId/members/:pubkey`
-
-Remove a member from the group (admin only). Publishes a remove proposal and commits it.
-
-**Response `204`** No content.
-
-**Response `404`** if the group does not exist.
-
----
-
-### Messages
-
-#### `POST /v1/groups/:groupId/messages`
-
-Send an encrypted chat message to a group.
-
-**Request body**
-```json
-{
-  "content": "Hello, group!",
-  "tags": [["reply", "some-event-id"]]
-}
-```
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `content` | Yes | Message text |
-| `tags` | No | Nostr-style tags (e.g., reply threads) |
-
-The message is MLS-encrypted, wrapped in a Nostr kind-445 event, and published to the group's relays. The request body is capped at 64 KiB; larger payloads receive `413 Payload Too Large`.
-
-**Response `201`**
-```json
-{ "ok": true }
-```
-
-**Response `404`** if the group does not exist.
-
-#### `GET /v1/groups/:groupId/messages`
-
-Query message history from the local SQLite store. Messages are only stored here after being received and decrypted via relay subscription.
-
-**Query parameters**
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `limit` | `50` | Maximum messages to return (capped at 200) |
-| `since` | `0` | Unix timestamp — only return messages after this time |
-
-**Response `200`**
-```json
-[
-  {
-    "id": "d4e5f6a7...",
-    "groupId": "35bffd6e...",
-    "sender": "3bf0c63f...",
-    "kind": 9,
-    "content": "Hello, group!",
-    "tags": [],
-    "createdAt": 1700000000
-  }
-]
-```
-
-| Field | Description |
-|-------|-------------|
-| `id` | Nostr event ID of the inner rumor |
-| `groupId` | MLS group ID (hex) |
-| `sender` | Sender's Nostr pubkey |
-| `kind` | Nostr event kind of the inner rumor (typically 9 for chat) |
-| `content` | Decrypted message content |
-| `tags` | Inner rumor tags |
-| `createdAt` | Unix timestamp |
-
----
-
-### Invites
-
-Invitations arrive as kind-1059 gift-wrapped Welcome messages (kind 444 inside) addressed to the server's pubkey. The server automatically watches for these on the default relays.
-
-#### `GET /v1/invites`
-
-List all pending (unread) invitations.
-
-**Response `200`**
-```json
-[
-  {
-    "id": "e1a2b3c4...",
-    "inviterPubkey": "3bf0c63f...",
-    "groupName": "My Group",
-    "createdAt": 1700000000
-  }
-]
-```
-
-| Field | Description |
-|-------|-------------|
-| `id` | Invite rumor ID — use this in accept/decline calls |
-| `inviterPubkey` | Pubkey of the person who invited you |
-| `groupName` | Group name decoded from the Welcome payload (may be `null` if unresolvable) |
-| `createdAt` | Unix timestamp of the invite |
-
-#### `POST /v1/invites/:inviteId/accept`
-
-Accept an invitation and join the group. After joining, a self-update commit is automatically sent to provide forward secrecy (per MIP-02).
-
-**Response `200`**
-```json
-{
-  "groupId": "35bffd6e...",
-  "name": "My Group"
-}
-```
-
-#### `POST /v1/invites/:inviteId/decline`
-
-Decline an invitation (marks it as read without joining).
-
-**Response `204`** No content.
-
----
-
-### Real-time Events (WebSocket)
-
-#### `WS /v1/events`
-
-Connect to receive a live stream of all server activity as JSON messages.
-
-**Connection**
-```
-ws://localhost:8080/v1/events
-ws://localhost:8080/v1/events?key=<API_KEY>   # when auth is enabled
-```
-
-On successful connection, the server immediately sends:
-```json
-{ "type": "connected", "pubkey": "3bf0c63f..." }
-```
-
----
-
-## WebSocket Event Schema
-
-All events share a `type` discriminator field.
-
-### `message` — Incoming chat message
-
-Emitted when a new decrypted group message is received from a relay.
-
-```json
-{
-  "type": "message",
-  "groupId": "35bffd6e...",
-  "message": {
-    "id": "d4e5f6a7...",
-    "sender": "3bf0c63f...",
-    "kind": 9,
-    "content": "Hello!",
-    "tags": [],
-    "createdAt": 1700000000
-  }
-}
-```
-
-### `invite` — New group invitation
-
-Emitted when a kind-1059 gift wrap addressed to this server is received and decrypted.
-
-```json
-{
-  "type": "invite",
-  "inviteId": "e1a2b3c4...",
-  "groupName": null,
-  "inviterPubkey": "3bf0c63f..."
-}
-```
-
-> `groupName` is always `null` in the real-time event; resolve it by calling `GET /v1/invites`.
-
-### `group_created` — Group created locally
-
-```json
-{
-  "type": "group_created",
-  "groupId": "35bffd6e...",
-  "name": "My Group"
-}
-```
-
-### `group_joined` — Joined a group via Welcome
-
-```json
-{
-  "type": "group_joined",
-  "groupId": "35bffd6e...",
-  "name": "My Group"
-}
-```
-
-### `group_left` — Left a group
-
-```json
-{
-  "type": "group_left",
-  "groupId": "35bffd6e..."
-}
-```
-
-### `group_destroyed` — Group purged locally
-
-```json
-{
-  "type": "group_destroyed",
-  "groupId": "35bffd6e..."
-}
-```
-
----
-
-## signal-cli Compatible API
-
-marmot-server exposes a signal-cli compatible HTTP interface, allowing it to be used as a drop-in transport backend for tools built on [signal-cli](https://github.com/AsamK/signal-cli)'s HTTP daemon mode — including [hermes-agent](https://github.com/NousResearch/hermes-agent).
-
-### Endpoints
+marmot-server exposes the same HTTP interface as `signal-cli --http`:
 
 | Endpoint | Description |
 |----------|-------------|
-| `POST /api/v1/rpc` | JSON-RPC 2.0 — single request or batch array |
-| `GET /api/v1/events` | Server-Sent Events stream of incoming messages and group events |
-| `GET /api/v1/check` | Liveness probe (no auth required) |
+| `POST /api/v1/rpc` | JSON-RPC 2.0 (single or batch) |
+| `GET /api/v1/events` | SSE stream — `data: {"envelope":{...}}` per message |
+| `GET /api/v1/check` | Liveness probe (no auth) |
+
+### Supported methods
+
+`send` · `sendMessage` · `sendTyping` · `sendReaction` · `getContact` · `getProfile` / `getSelfProfile` · `listGroups` · `getGroup` · `createGroup` · `updateGroup` · `leaveGroup` / `quitGroup` · `deleteGroup` · `listContacts` · `listDevices` · `listIdentities` · `subscribeReceive` · `unsubscribeReceive` · `receive`
+
+**Protocol notes:**
+- The `account` param is accepted and ignored (single-identity server)
+- Group IDs are base64-encoded on the wire (signal-cli convention)
+- Direct messages are not supported — `send` without a `groupId` no-ops silently
+- `getContact` resolves Nostr pubkeys to display names via kind-0 profile lookup (5-minute cache)
 
 ### Authentication
 
-Same `API_KEY` as the REST API:
-- `POST /api/v1/rpc` — `Authorization: Bearer <key>` header
-- `GET /api/v1/events` — `?key=<key>` query parameter (browser SSE compat) or `Authorization: Bearer <key>` header
-
-### Supported JSON-RPC methods
-
-| Method | Description |
-|--------|-------------|
-| `send` | Send a message to a group (primary hermes-agent method) |
-| `sendMessage` | Send a message to a group (validates groupId required) |
-| `sendTyping` | No-op (Marmot has no typing events) |
-| `sendReaction` | Send a reaction emoji; encoded as a tagged chat message |
-| `getAttachment` | Returns error — Marmot has no attachment support |
-| `getContact` | Resolve a pubkey to a display name via kind-0 profile lookup (cached 5 min) |
-| `getProfile` / `getSelfProfile` | Returns server identity info |
-| `listGroups` | List all groups (base64 group IDs) |
-| `getGroup` | Get details for a single group |
-| `createGroup` | Create a new group |
-| `updateGroup` | Add or remove members |
-| `leaveGroup` / `quitGroup` | Leave a group |
-| `deleteGroup` | Destroy a group (local purge) |
-| `listContacts` | Returns empty (Marmot has no contact store) |
-| `listDevices` | Returns a single entry for this server |
-| `listIdentities` | Returns empty |
-| `subscribeReceive` | No-op; use SSE stream for real-time delivery |
-| `unsubscribeReceive` | No-op |
-| `receive` | Returns empty; use SSE stream for real-time delivery |
-
-**Protocol notes:**
-- The `account` parameter in every request is accepted but ignored (single-identity server)
-- Group IDs are base64-encoded on the wire (signal-cli convention), converted internally to hex
-- Direct messages are not supported; `send`/`sendMessage` without a `groupId` returns success silently
-- SSE events have the shape `data: {"envelope":{...}}` matching signal-cli's wire format
-
-### hermes-agent configuration
-
-```bash
-SIGNAL_HTTP_URL=http://127.0.0.1:8080
-SIGNAL_ACCOUNT=<server-npub-or-pubkey>   # any identifier; used as "account" param
-# If API_KEY is set:
-SIGNAL_API_KEY=<key>
-```
+- HTTP: `Authorization: Bearer <API_KEY>`
+- SSE: `?key=<API_KEY>` query param or `Authorization: Bearer <API_KEY>` header
+- Unprotected: `GET /health`, `GET /docs`, `GET /api/v1/check`
 
 ---
 
-## Typical Workflows
+## REST API
 
-### Onboarding: prepare to receive invites
+The full REST API is documented interactively at `/docs`. Quick reference:
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /v1/identity` | Server pubkey and relay list |
+| `GET/POST /v1/key-packages` | MLS key package lifecycle |
+| `POST /v1/key-packages/:ref/rotate` | Rotate a key package |
+| `DELETE /v1/key-packages/:ref` | Purge a key package |
+| `GET/POST /v1/groups` | List or create groups |
+| `GET/DELETE /v1/groups/:id` | Get or destroy a group |
+| `POST /v1/groups/:id/leave` | Leave a group |
+| `POST /v1/groups/:id/invite` | Invite a user by pubkey |
+| `DELETE /v1/groups/:id/members/:pubkey` | Remove a member |
+| `GET/POST /v1/groups/:id/messages` | Message history / send |
+| `GET /v1/invites` | List pending invitations |
+| `POST /v1/invites/:id/accept` | Accept an invitation |
+| `POST /v1/invites/:id/decline` | Decline an invitation |
+| `WS /v1/events` | Real-time event stream |
+
+---
+
+## Preparing to receive invites
+
+Before another Marmot client (e.g. Whitenoise) can add the server to a group, publish a key package:
 
 ```bash
-# 1. See your identity
-curl http://localhost:8080/v1/identity
-
-# 2. Publish a key package so others can invite you
 curl -X POST http://localhost:8080/v1/key-packages
 ```
 
-### Create a group and send a message
+Then share the server's pubkey (`GET /v1/identity`) with the person inviting you. Once they send the invite, either accept it manually:
 
 ```bash
-# 1. Create group
-GROUP=$(curl -s -X POST http://localhost:8080/v1/groups \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Team Alpha","relays":["wss://relay.damus.io"]}')
-GROUP_ID=$(echo $GROUP | jq -r '.id')
-
-# 2. Send a message
-curl -X POST http://localhost:8080/v1/groups/$GROUP_ID/messages \
-  -H "Content-Type: application/json" \
-  -d '{"content":"Hello, team!"}'
-```
-
-### Invite another user
-
-```bash
-# Invitee must have published a key package on a relay the group uses
-curl -X POST http://localhost:8080/v1/groups/$GROUP_ID/invite \
-  -H "Content-Type: application/json" \
-  -d '{"pubkey":"<invitee-pubkey>"}'
-```
-
-### Accept an incoming invite
-
-```bash
-# List pending invites
 curl http://localhost:8080/v1/invites
-
-# Accept
-curl -X POST http://localhost:8080/v1/invites/<inviteId>/accept
+curl -X POST http://localhost:8080/v1/invites/<id>/accept
 ```
 
-### Remove a member
-
-```bash
-curl -X DELETE http://localhost:8080/v1/groups/$GROUP_ID/members/<pubkey>
-```
-
-### Listen for real-time events
-
-```bash
-# Using wscat
-wscat -c ws://localhost:8080/v1/events
-
-# Using websocat
-websocat ws://localhost:8080/v1/events
-```
+Or set `AUTO_ACCEPT_FROM` to auto-accept from trusted pubkeys.
 
 ---
 
-## Data Persistence
+## Data & Security
 
-All data lives in a single SQLite file (`DB_PATH`, default `/data/marmot.db`).
+All state lives in a single SQLite file (`DB_PATH`). To back up: stop the server, copy the file, restart.
 
-| Table | Contents | Format |
-|-------|----------|--------|
-| `identity` | Nostr private key | TEXT (hex) |
-| `group_state` | MLS group state per group | BLOB (TLS-encoded `SerializedClientState`) |
-| `key_packages` | MLS key packages | TEXT (JSON with Uint8Array/BigInt encoding) |
-| `invites_received` | Raw received gift-wrap events | TEXT (JSON) |
-| `invites_unread` | Unread invite rumor IDs | TEXT (JSON) |
-| `invites_seen` | Seen invite IDs (dedup) | TEXT (JSON) |
-| `messages` | Decrypted message history | TEXT columns + INTEGER timestamps |
+> The database contains the private key and full message history in plaintext. Protect the `/data` volume accordingly.
 
-**Backup**: stop the server, copy the database file, restart.
+- Set `API_KEY` to at least 32 random bytes: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
+- Do not expose port 8080 to the public internet
+- Use a TLS-terminating reverse proxy (Caddy, nginx) in production to protect the WS/SSE `?key=` token on the wire
 
-**Reset**: delete the database file. A new identity (keypair) and fresh state will be generated on next boot.
-
-> Warning: deleting the database destroys all group memberships and keys. There is no recovery — other group members will need to re-invite you.
+See [RISK_ASSESSMENT.md](RISK_ASSESSMENT.md) for the full security audit.
 
 ---
 
 ## Development
 
-### Prerequisites
-
-- Node.js 18+ (22 recommended)
-- npm
-
-### Commands
-
 ```bash
-npm install          # install dependencies
-npm run dev          # run with tsx (no build step)
-npm run build        # compile TypeScript to dist/
-npm start            # run compiled output
+npm install
+npm run dev       # tsx, no build step
+npm run build     # compile to dist/
+npm start         # run compiled output
 ```
 
-### Project Structure
+### Project structure
 
 ```
 src/
-  index.ts                 # Entry point: Fastify app, plugin registration, graceful shutdown
-  config.ts                # Environment variable configuration
-  middleware/
-    auth.ts                # Optional Bearer token auth hook
-  marmot/
-    service.ts             # MarmotService: core singleton, relay subscriptions, event fan-out
-  nostr/
-    pool.ts                # NostrPool: NostrNetworkInterface wrapping nostr-tools SimplePool
-    signer.ts              # PrivateKeySigner: EventSigner using nostr-tools
-  store/
-    kv-store.ts            # SqliteKvStore<T> and SqliteBlobStore
-    message-store.ts       # MessageStore + BaseGroupHistory adapter
-  routes/
-    identity.ts            # GET /v1/identity
-    key-packages.ts        # Key package CRUD
-    groups.ts              # Group management and membership
-    messages.ts            # Send and retrieve messages
-    invites.ts             # Invite lifecycle
-    events.ts              # WebSocket real-time events
-    signal.ts              # signal-cli compat: POST /api/v1/rpc, GET /api/v1/events SSE
-  signal/
-    dispatcher.ts          # JSON-RPC method handlers (send, listGroups, getContact, …)
-    types.ts               # JsonRpcRequest/Response, SignalGroup, SignalEnvelope types
+  index.ts              # Fastify app, startup, graceful shutdown
+  config.ts             # Environment variable config
+  middleware/auth.ts    # Bearer token auth hook
+  marmot/service.ts     # Core: relay subscriptions, event fan-out
+  nostr/pool.ts         # NostrPool wrapping nostr-tools SimplePool
+  nostr/signer.ts       # PrivateKeySigner (nostr-tools)
+  store/kv-store.ts     # SqliteKvStore + SqliteBlobStore
+  store/message-store.ts
+  routes/               # REST API routes (identity, groups, messages, …)
+  routes/signal.ts      # signal-cli compat transport
+  signal/dispatcher.ts  # JSON-RPC method handlers
+  signal/types.ts       # JsonRpcRequest/Response, SignalEnvelope types
 ```
-
-### Swagger UI
-
-When running locally, full interactive API documentation is available at:
-
-```
-http://localhost:8080/docs
-```
-
----
-
-## Security
-
-See [docs/security.md](docs/security.md) for the full threat model and risk assessment.
-
-### Accepted risks
-
-- **No rate limiting** — marmot-server is a local daemon accessed by a single trusted client. If exposed beyond a local network, place a rate-limiting reverse proxy in front and use an API key of at least 32 random bytes.
-- **No CORS policy** — the absence of CORS headers is the correct default for a local daemon; browsers block cross-origin requests by the same-origin policy.
-
-### Operational security checklist
-
-- Set `API_KEY` to at least 32 random bytes: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
-- Do **not** expose port 8080 to the public internet — bind to a private network
-- Protect the `/data` volume — the SQLite file contains the private key and message history in plaintext
-- Put a TLS-terminating reverse proxy (Caddy, nginx) in front for production deployments to prevent the WS `?key=` token from being visible on the wire
-- Review structured JSON logs for `500` responses (`"Unhandled server error"` entries include a `reqId` for correlation)
-
----
-
-## Architecture
-
-See [docs/architecture.md](docs/architecture.md) for a deep dive into:
-
-- Protocol layer stack (MLS + Nostr)
-- Storage design decisions
-- Relay subscription lifecycle
-- MLS group lifecycle (create, invite, join, leave, remove, epoch commits)
-- Security model and threat considerations
