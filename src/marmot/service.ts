@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { generateSecretKey } from "nostr-tools/pure";
+import { decode as nip19Decode } from "nostr-tools/nip19";
 import {
   MarmotClient,
   KeyValueGroupStateBackend,
@@ -93,12 +94,38 @@ export class MarmotService extends EventEmitter<ServiceEvents> {
         groupName: null, // decoded lazily via client.readInviteGroupInfo
         inviterPubkey: rumor.pubkey ?? null,
       });
+      // Auto-accept if the inviter is in the configured allow-list
+      if (rumor.pubkey && config.autoAcceptFrom.includes(rumor.pubkey)) {
+        this.client.joinGroupFromWelcome({ welcomeRumor: rumor as unknown as Parameters<typeof this.client.joinGroupFromWelcome>[0]["welcomeRumor"] })
+          .then(({ group }) => {
+            this.inviteReader.markAsRead(rumor.id).catch(() => {});
+            return group.selfUpdate().catch(() => {});
+          })
+          .catch((err) => {
+            console.error("[service] auto-accept invite %s from %s failed: %s", rumor.id.slice(0, 16), (rumor.pubkey ?? "").slice(0, 16), err?.message);
+          });
+      }
     });
   }
 
   static async create(db: Database.Database): Promise<MarmotService> {
     // --- identity ---
     const identityStore = new SqliteKvStore<string>(db, "identity");
+    // If IDENTITY_KEY is set, resolve it to hex and (over)write the store so
+    // the server always starts with the configured keypair.
+    if (config.identityKey) {
+      let resolved: string;
+      const raw = config.identityKey.trim();
+      if (raw.startsWith("nsec")) {
+        const decoded = nip19Decode(raw);
+        if (decoded.type !== "nsec") throw new Error("IDENTITY_KEY: expected nsec bech32");
+        resolved = bytesToHex(decoded.data as Uint8Array);
+      } else {
+        if (!/^[0-9a-fA-F]{64}$/.test(raw)) throw new Error("IDENTITY_KEY: expected 64-char hex or nsec bech32");
+        resolved = raw.toLowerCase();
+      }
+      await identityStore.setItem("privkey", resolved);
+    }
     let privkeyHex = await identityStore.getItem("privkey");
     if (!privkeyHex) {
       const key = generateSecretKey();
@@ -110,7 +137,9 @@ export class MarmotService extends EventEmitter<ServiceEvents> {
     const pubkey = await signer.getPublicKey();
 
     // --- nostr pool ---
-    const pool = new NostrPool(config.defaultRelays);
+    // Pass signer so the pool can respond to NIP-42 AUTH challenges from
+    // relays that require authentication before accepting published events.
+    const pool = new NostrPool(config.defaultRelays, (template) => signer.signEvent(template));
 
     // --- group state store ---
     const groupStateBlobStore = new SqliteBlobStore(db, "group_state");
@@ -253,14 +282,17 @@ export class MarmotService extends EventEmitter<ServiceEvents> {
   private startInboxSubscription(): void {
     if (this.inboxSubCleanup) return;
 
+    // Fetch historical gift wraps first (the live subscription only catches new ones)
+    this.fetchHistoricalInbox().catch(() => {});
+
+    // kind 1059 = NIP-59 gift wrap (outer envelope); inner rumor is kind 444 (WELCOME_EVENT_KIND)
     const sub = this.pool.subscription(config.defaultRelays, {
-      kinds: [WELCOME_EVENT_KIND],
+      kinds: [1059],
       "#p": [this.pubkey],
     } as Parameters<typeof this.pool.subscription>[1]);
 
     const handle = sub.subscribe({
       next: async (event) => {
-        // Only process kind 1059 gift wraps
         const e = event as unknown as { kind: number };
         if (e.kind !== 1059) return;
         try {
@@ -277,6 +309,29 @@ export class MarmotService extends EventEmitter<ServiceEvents> {
     });
 
     this.inboxSubCleanup = () => handle.unsubscribe();
+  }
+
+  private async fetchHistoricalInbox(): Promise<void> {
+    try {
+      const events = await this.pool.request(config.defaultRelays, {
+        kinds: [1059],
+        "#p": [this.pubkey],
+      } as Parameters<typeof this.pool.request>[1]);
+      for (const event of events) {
+        const e = event as unknown as { kind: number; id: string };
+        if (e.kind !== 1059) continue;
+        try {
+          const isNew = await this.inviteReader.ingestEvent(event as unknown as Parameters<typeof this.inviteReader.ingestEvent>[0]);
+          if (isNew) {
+            await this.inviteReader.decryptGiftWrap(e.id);
+          }
+        } catch {
+          // ignore individual failures
+        }
+      }
+    } catch {
+      // ignore
+    }
   }
 
   shutdown(): void {

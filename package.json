@@ -24,6 +24,7 @@
     "@types/better-sqlite3": "^7.0.0",
     "@types/debug": "^4.1.0",
     "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.1",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0"
   }

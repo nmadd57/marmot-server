@@ -21,6 +21,7 @@ import { groupRoutes } from "./routes/groups.js";
 import { messageRoutes } from "./routes/messages.js";
 import { inviteRoutes } from "./routes/invites.js";
 import { eventsRoute } from "./routes/events.js";
+import { signalRoutes } from "./routes/signal.js";
 
 async function main(): Promise<void> {
   // Ensure data directory exists
@@ -120,6 +121,7 @@ async function main(): Promise<void> {
   await messageRoutes(fastify, service);
   await inviteRoutes(fastify, service);
   await eventsRoute(fastify, service);
+  await signalRoutes(fastify, service);
 
   // Graceful shutdown
   const shutdown = async (): Promise<void> => {
