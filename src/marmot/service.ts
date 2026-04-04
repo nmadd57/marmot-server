@@ -99,6 +99,9 @@ export class MarmotService extends EventEmitter<ServiceEvents> {
         this.client.joinGroupFromWelcome({ welcomeRumor: rumor as unknown as Parameters<typeof this.client.joinGroupFromWelcome>[0]["welcomeRumor"] })
           .then(({ group }) => {
             this.inviteReader.markAsRead(rumor.id).catch(() => {});
+            // Replenish the consumed key package so future invites can still
+            // find a valid package in the local store.
+            this.ensureKeyPackage().catch(() => {});
             return group.selfUpdate().catch(() => {});
           })
           .catch((err) => {
@@ -176,10 +179,39 @@ export class MarmotService extends EventEmitter<ServiceEvents> {
     // Load all existing groups and start subscriptions
     await client.loadAllGroups();
 
+    // Ensure at least one usable key package is published so that other clients
+    // can invite this server to groups. Without this, joinGroupFromWelcome fails
+    // with "No matching KeyPackage found in local store" because the Welcome
+    // references a key package that was never created.
+    await service.ensureKeyPackage();
+
     // Start inbox subscription for welcome messages
     service.startInboxSubscription();
 
     return service;
+  }
+
+  /**
+   * Publish a new key package if none are available in the local store.
+   * Called on startup and after accepting an invite (which consumes a package).
+   * Without at least one published key package, other clients cannot invite
+   * this server to groups.
+   */
+  async ensureKeyPackage(): Promise<void> {
+    try {
+      const packages = await this.client.keyPackages.list();
+      const available = packages.filter((p) => !p.used);
+      if (available.length === 0) {
+        await this.client.keyPackages.create({
+          relays: config.defaultRelays,
+          isLastResort: true,
+          client: "marmot-server",
+        });
+        console.log("[service] published new key package to %s", config.defaultRelays.join(","));
+      }
+    } catch (err) {
+      console.error("[service] ensureKeyPackage failed: %s", (err as Error)?.message);
+    }
   }
 
   /** Subscribe to group relay events for an already-loaded group */
