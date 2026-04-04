@@ -8,9 +8,26 @@
 stages:
 - test
 - secret-detection
+- mirror
 variables:
   SECRET_DETECTION_ENABLED: 'true'
 secret_detection:
   stage: secret-detection
 include:
 - template: Security/Secret-Detection.gitlab-ci.yml
+
+# Mirror to GitHub on every push to main.
+# Requires a GitLab CI/CD variable named GITHUB_TOKEN set to a GitHub
+# Personal Access Token (classic) with the "repo" scope.
+# Add it at: GitLab → Settings → CI/CD → Variables → Add variable
+#   Key:   GITHUB_TOKEN
+#   Value: <your PAT>
+#   Mask:  yes   Protect: yes
+mirror-to-github:
+  stage: mirror
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  image: alpine/git:latest
+  script:
+    - git remote add github "https://nmadd57:${GITHUB_TOKEN}@github.com/nmadd57/marmot-server.git"
+    - git push github "HEAD:main" --force
