@@ -38,9 +38,10 @@ services:
       # to open access without an explicit list.
       # SIGNAL_ALLOWED_USERS: "npub1...,npub1..."
       #
-      # SIGNAL_ALLOW_ALL_USERS: set to "true" to forward messages from everyone.
-      # Equivalent to open-access mode. Use with caution.
-      # SIGNAL_ALLOW_ALL_USERS: "true"
+      # SIGNAL_ALLOW_ALL_USERS: set to "true" to forward all messages through the
+      # SSE stream. Required when hermes-agent (or another client) does its own
+      # allow-list filtering — otherwise marmot-server drops all messages by default.
+      SIGNAL_ALLOW_ALL_USERS: "true"
       #
       # SIGNAL_GROUP_ALLOWED_USERS: which groups to forward. Unset or "*" = all
       # groups (marmot default). Comma-separated base64 group IDs to restrict.

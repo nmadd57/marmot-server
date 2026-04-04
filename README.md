@@ -58,9 +58,13 @@ SIGNAL_ACCOUNT=<pubkey from /v1/identity>
 # If API_KEY is set:
 SIGNAL_API_KEY=change-me
 
-# Access control (mirrors TELEGRAM_ALLOWED_USERS / SLACK_ALLOWED_USERS):
+# hermes-agent does its own sender filtering — tell marmot-server to pass
+# all messages through so hermes-agent's SIGNAL_ALLOWED_USERS takes effect.
+# Without this, marmot-server drops all messages by default.
+SIGNAL_ALLOW_ALL_USERS=true   # set on marmot-server (not hermes-agent)
+
+# hermes-agent side: restrict which senders the agent processes
 SIGNAL_ALLOWED_USERS=npub1...,npub1...   # only forward messages from these pubkeys
-# SIGNAL_ALLOW_ALL_USERS=true            # skip sender filtering entirely (open access)
 # SIGNAL_GROUP_ALLOWED_USERS=*           # which groups to forward (* = all, default)
 ```
 
