@@ -181,15 +181,21 @@ export async function signalRoutes(
       res.write(": signal-cli-compat connected\n\n");
 
       const onEvent = (evt: ServerEvent) => {
-        // If SIGNAL_ALLOWED_USERS is set, drop messages from non-listed senders.
-        // Group lifecycle events (join/leave/create) are always forwarded.
-        if (
-          evt.type === "message" &&
-          config.allowedUsers.length > 0 &&
-          !config.allowedUsers.includes(evt.message.sender)
-        ) {
-          return;
+        if (evt.type === "message") {
+          // SIGNAL_GROUP_ALLOWED_USERS: null = all groups allowed; Set = allowlist.
+          if (config.groupAllowedUsers !== null) {
+            const groupIdB64 = hexToBase64(evt.groupId);
+            if (!config.groupAllowedUsers.has(groupIdB64)) return;
+          }
+
+          // SIGNAL_ALLOW_ALL_USERS=true bypasses sender filtering entirely.
+          // Otherwise: if SIGNAL_ALLOWED_USERS is set, enforce it; if unset,
+          // unknown senders are dropped (explicit allowlist required).
+          if (!config.allowAllUsers) {
+            if (!config.allowedUsers.includes(evt.message.sender)) return;
+          }
         }
+        // Group lifecycle events (join/leave/create/destroy) always pass through.
         const notification = formatSseEnvelope(evt, service.pubkey);
         if (notification) write(notification);
       };

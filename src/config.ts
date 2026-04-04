@@ -18,6 +18,25 @@ function parsePubkeyList(raw: string | undefined, varName: string): string[] {
     });
 }
 
+/**
+ * Parse SIGNAL_GROUP_ALLOWED_USERS.
+ * Returns null for "all groups" (*), empty array for "no groups", or a Set of
+ * base64 group IDs to allow.
+ *
+ *   unset / "*"            → null  (allow all — marmot default since DMs don't exist)
+ *   ""                     → Set() (block all groups)
+ *   "groupIdA,groupIdB"    → Set of those base64 IDs
+ */
+function parseGroupAllowedUsers(raw: string | undefined): Set<string> | null {
+  if (!raw || raw.trim() === "*") return null; // null = all groups allowed
+  return new Set(
+    raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+  );
+}
+
 export const config = {
   host: process.env.HOST ?? "0.0.0.0",
   port: parseInt(process.env.PORT ?? "8080"),
@@ -38,14 +57,30 @@ export const config = {
   /**
    * Comma-separated list of npubs (or hex pubkeys) from which incoming group
    * invites are automatically accepted without requiring a manual API call.
-   * Example: AUTO_ACCEPT_FROM=npub1abc...,npub1xyz...
    */
   autoAcceptFrom: parsePubkeyList(process.env.AUTO_ACCEPT_FROM, "AUTO_ACCEPT_FROM"),
   /**
-   * Comma-separated list of npubs (or hex pubkeys) whose messages are forwarded
-   * to the signal-cli SSE stream. Messages from any other sender are silently
-   * dropped. When unset, all messages are forwarded (no filtering).
-   * Mirrors the TELEGRAM_ALLOWED_USERS / SLACK_ALLOWED_USERS pattern in hermes-agent.
+   * hermes-agent: SIGNAL_ALLOWED_USERS
+   * Comma-separated npubs/hex pubkeys allowed to send messages to the agent.
+   * When set, messages from all other senders are silently dropped on the SSE
+   * stream. When unset and SIGNAL_ALLOW_ALL_USERS is not true, unknown senders
+   * are also dropped (explicit opt-in required).
+   * Set SIGNAL_ALLOW_ALL_USERS=true to forward messages from everyone.
    */
   allowedUsers: parsePubkeyList(process.env.SIGNAL_ALLOWED_USERS, "SIGNAL_ALLOWED_USERS"),
+  /**
+   * hermes-agent: SIGNAL_ALLOW_ALL_USERS
+   * When true, all senders are forwarded regardless of SIGNAL_ALLOWED_USERS.
+   * Equivalent to signal-cli open-access mode. Use with caution.
+   */
+  allowAllUsers: process.env.SIGNAL_ALLOW_ALL_USERS === "true",
+  /**
+   * hermes-agent: SIGNAL_GROUP_ALLOWED_USERS
+   * Controls which groups' messages are forwarded on the SSE stream.
+   *   unset or "*" → all groups (marmot default — no DMs exist)
+   *   comma-separated base64 group IDs → only those groups
+   * Note: in signal-cli the default is DM-only; marmot defaults to all groups
+   * since the protocol is groups-only.
+   */
+  groupAllowedUsers: parseGroupAllowedUsers(process.env.SIGNAL_GROUP_ALLOWED_USERS),
 };

@@ -30,9 +30,19 @@ services:
       # group invitations are automatically accepted without a manual API call.
       # AUTO_ACCEPT_FROM: "npub1...,npub1..."
 
-      # Optional: comma-separated npubs (or 64-char hex pubkeys) allowed to send
-      # messages to the agent via the SSE stream. Messages from all other senders
-      # are silently dropped. Mirrors TELEGRAM_ALLOWED_USERS / SLACK_ALLOWED_USERS.
-      # When unset, all senders are forwarded.
+      # hermes-agent access control (mirrors TELEGRAM_ALLOWED_USERS pattern):
+      #
+      # SIGNAL_ALLOWED_USERS: comma-separated npubs/hex pubkeys allowed to send
+      # messages to the agent. When set, all other senders are silently dropped.
+      # When unset, unknown senders are also dropped — use SIGNAL_ALLOW_ALL_USERS
+      # to open access without an explicit list.
       # SIGNAL_ALLOWED_USERS: "npub1...,npub1..."
+      #
+      # SIGNAL_ALLOW_ALL_USERS: set to "true" to forward messages from everyone.
+      # Equivalent to open-access mode. Use with caution.
+      # SIGNAL_ALLOW_ALL_USERS: "true"
+      #
+      # SIGNAL_GROUP_ALLOWED_USERS: which groups to forward. Unset or "*" = all
+      # groups (marmot default). Comma-separated base64 group IDs to restrict.
+      # SIGNAL_GROUP_ALLOWED_USERS: "*"
     restart: unless-stopped
