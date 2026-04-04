@@ -27,7 +27,9 @@ mirror-to-github:
   stage: mirror
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
-  image: alpine/git:latest
+  image:
+    name: alpine/git:latest
+    entrypoint: [""]   # alpine/git sets entrypoint to git itself; clear it so the CI shell works
   script:
     - git remote add github "https://nmadd57:${GITHUB_TOKEN}@github.com/nmadd57/marmot-server.git"
     - git push github "HEAD:main" --force
