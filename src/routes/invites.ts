@@ -88,6 +88,9 @@ export async function inviteRoutes(
       const { group } = await service.client.joinGroupFromWelcome({ welcomeRumor: rumor });
       await service.inviteReader.markAsRead(req.params.inviteId);
 
+      // Replenish the consumed key package so future invites can still be accepted.
+      service.ensureKeyPackage().catch(() => {});
+
       // Self-update after joining for forward secrecy (MIP-02)
       try {
         await group.selfUpdate();
