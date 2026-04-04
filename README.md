@@ -65,7 +65,9 @@ SIGNAL_ALLOW_ALL_USERS=true   # set on marmot-server (not hermes-agent)
 
 # hermes-agent side: restrict which senders the agent processes
 SIGNAL_ALLOWED_USERS=npub1...,npub1...   # only forward messages from these pubkeys
-# SIGNAL_GROUP_ALLOWED_USERS=*           # which groups to forward (* = all, default)
+
+# REQUIRED for group messaging — hermes defaults to groups=disabled when unset
+SIGNAL_GROUP_ALLOWED_USERS=*            # * = all groups
 ```
 
 That's it. hermes-agent's `send`, `sendTyping`, `getContact`, `listGroups`, `getGroup`, and SSE receive stream all work out of the box.

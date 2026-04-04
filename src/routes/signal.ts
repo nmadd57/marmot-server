@@ -25,6 +25,7 @@ import { config } from "../config.js";
 import { timingSafeCompare } from "../middleware/auth.js";
 import { createDispatcher, hexToBase64 } from "../signal/dispatcher.js";
 import type { JsonRpcRequest, SignalEnvelope } from "../signal/types.js";
+import { npubEncode } from "nostr-tools/nip19";
 
 /**
  * Format a ServerEvent as the SSE payload hermes-agent (and signal-cli) expect:
@@ -33,12 +34,17 @@ import type { JsonRpcRequest, SignalEnvelope } from "../signal/types.js";
  * sourceNumber and sourceUuid carry the sender's Nostr pubkey so hermes-agent
  * can use either field as a stable identifier.
  */
+function hexToNpub(hex: string): string {
+  try { return npubEncode(hex); } catch { return hex; }
+}
+
 function formatSseEnvelope(evt: ServerEvent, _accountPubkey: string): object | null {
   if (evt.type === "message") {
     const ts = evt.message.createdAt * 1000;
+    const senderNpub = hexToNpub(evt.message.sender);
     const envelope: SignalEnvelope = {
-      source: evt.message.sender,
-      sourceNumber: evt.message.sender,  // pubkey hex used as identifier
+      source: senderNpub,
+      sourceNumber: senderNpub,  // npub used as identifier (matches SIGNAL_ALLOWED_USERS format)
       sourceDevice: 1,
       timestamp: ts,
       dataMessage: {
@@ -57,9 +63,10 @@ function formatSseEnvelope(evt: ServerEvent, _accountPubkey: string): object | n
 
   if (evt.type === "group_created" || evt.type === "group_joined") {
     const ts = Date.now();
+    const accountNpub = hexToNpub(_accountPubkey);
     const envelope: SignalEnvelope = {
-      source: _accountPubkey,
-      sourceNumber: _accountPubkey,
+      source: accountNpub,
+      sourceNumber: accountNpub,
       sourceDevice: 1,
       timestamp: ts,
       dataMessage: {
@@ -75,9 +82,10 @@ function formatSseEnvelope(evt: ServerEvent, _accountPubkey: string): object | n
 
   if (evt.type === "group_left") {
     const ts = Date.now();
+    const accountNpub = hexToNpub(_accountPubkey);
     const envelope: SignalEnvelope = {
-      source: _accountPubkey,
-      sourceNumber: _accountPubkey,
+      source: accountNpub,
+      sourceNumber: accountNpub,
       sourceDevice: 1,
       timestamp: ts,
       dataMessage: {

@@ -288,7 +288,14 @@ export class MarmotService extends EventEmitter<ServiceEvents> {
     events: NostrEvent[]
   ): Promise<void> {
     for await (const result of group.ingest(events as unknown as Parameters<MarmotGroup["ingest"]>[0])) {
-      if (result.kind === "processed" && result.result.kind === "applicationMessage") {
+      if (result.kind === "unreadable") {
+        const ids = events.map((e) => (e as unknown as { id: string }).id?.slice(0, 12)).join(",");
+        console.warn("[service] unreadable event(s) in group %s: %s errors=%s",
+          groupIdHex.slice(0, 12),
+          ids,
+          (result as unknown as { errors?: unknown[] }).errors?.map((e: unknown) => (e as Error)?.message).join("; ") ?? "none"
+        );
+      } else if (result.kind === "processed" && result.result.kind === "applicationMessage") {
         try {
           const rumor = deserializeApplicationData(result.result.message);
           this.emit("event", {
