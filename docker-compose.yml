@@ -9,6 +9,7 @@ services:
       # Optional API key — if set, all requests must include:
       #   HTTP:      Authorization: Bearer <key>
       #   WebSocket: ws://localhost:8080/v1/events?key=<key>
+      #   SSE:       GET /api/v1/events?key=<key>  (signal-cli compat)
       # API_KEY: "change-me"
 
       # Comma-separated default Nostr relays
@@ -19,4 +20,13 @@ services:
 
       # Logging verbosity: trace | debug | info | warn | error
       LOG_LEVEL: "info"
+
+      # Optional: deterministic identity. Accepts a 64-char hex private key or
+      # an nsec bech32 string. When set, overwrites any existing stored key on
+      # startup (useful for restoring a backup identity).
+      # IDENTITY_KEY: "nsec1..."
+
+      # Optional: comma-separated npubs (or 64-char hex pubkeys) whose incoming
+      # group invitations are automatically accepted without a manual API call.
+      # AUTO_ACCEPT_FROM: "npub1...,npub1..."
     restart: unless-stopped
