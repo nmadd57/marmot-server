@@ -59,12 +59,12 @@ SIGNAL_ACCOUNT=<pubkey from /v1/identity>
 SIGNAL_API_KEY=change-me
 
 # hermes-agent does its own sender filtering — tell marmot-server to pass
-# all messages through so hermes-agent's SIGNAL_ALLOWED_USERS takes effect.
+# all messages through so hermes-agent's ALLOWED_USERS takes effect.
 # Without this, marmot-server drops all messages by default.
 SIGNAL_ALLOW_ALL_USERS=true   # set on marmot-server (not hermes-agent)
 
 # hermes-agent side: restrict which senders the agent processes
-SIGNAL_ALLOWED_USERS=npub1...,npub1...   # only forward messages from these pubkeys
+ALLOWED_USERS=npub1...,npub1...          # only forward messages from these pubkeys
 
 # REQUIRED for group messaging — hermes defaults to groups=disabled when unset
 SIGNAL_GROUP_ALLOWED_USERS=*            # * = all groups
@@ -115,7 +115,7 @@ curl http://localhost:8080/v1/groups
 | `LOG_LEVEL` | `info` | `trace` \| `debug` \| `info` \| `warn` \| `error` |
 | `IDENTITY_KEY` | _(unset)_ | Pin a keypair: `nsec1…` bech32 or 64-char hex. Overwrites stored key on startup. |
 | `AUTO_ACCEPT_FROM` | _(unset)_ | Comma-separated npubs/hex pubkeys whose group invitations are auto-accepted. |
-| `SIGNAL_ALLOWED_USERS` | _(unset)_ | Comma-separated npubs/hex pubkeys allowed to send messages to the agent via SSE. When set, all other senders are dropped. When unset, unknown senders are also dropped unless `SIGNAL_ALLOW_ALL_USERS=true`. |
+| `ALLOWED_USERS` | _(unset)_ | Comma-separated npubs/hex pubkeys allowed to send messages to the agent via SSE. When set, all other senders are dropped. When unset, unknown senders are also dropped unless `SIGNAL_ALLOW_ALL_USERS=true`. |
 | `SIGNAL_ALLOW_ALL_USERS` | `false` | Set to `true` to forward messages from all senders without an allowlist. Equivalent to open-access mode. |
 | `SIGNAL_GROUP_ALLOWED_USERS` | `*` | Which groups to forward. `*` or unset = all groups. Comma-separated base64 group IDs to restrict to specific groups. Note: marmot defaults to all groups since DMs don't exist; signal-cli defaults to DM-only. |
 

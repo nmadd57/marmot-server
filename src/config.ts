@@ -60,17 +60,17 @@ export const config = {
    */
   autoAcceptFrom: parsePubkeyList(process.env.AUTO_ACCEPT_FROM, "AUTO_ACCEPT_FROM"),
   /**
-   * hermes-agent: SIGNAL_ALLOWED_USERS
+   * ALLOWED_USERS
    * Comma-separated npubs/hex pubkeys allowed to send messages to the agent.
    * When set, messages from all other senders are silently dropped on the SSE
    * stream. When unset and SIGNAL_ALLOW_ALL_USERS is not true, unknown senders
    * are also dropped (explicit opt-in required).
    * Set SIGNAL_ALLOW_ALL_USERS=true to forward messages from everyone.
    */
-  allowedUsers: parsePubkeyList(process.env.SIGNAL_ALLOWED_USERS, "SIGNAL_ALLOWED_USERS"),
+  allowedUsers: parsePubkeyList(process.env.ALLOWED_USERS ?? process.env.SIGNAL_ALLOWED_USERS, "ALLOWED_USERS"),
   /**
    * hermes-agent: SIGNAL_ALLOW_ALL_USERS
-   * When true, all senders are forwarded regardless of SIGNAL_ALLOWED_USERS.
+   * When true, all senders are forwarded regardless of ALLOWED_USERS.
    * Equivalent to signal-cli open-access mode. Use with caution.
    */
   allowAllUsers: process.env.SIGNAL_ALLOW_ALL_USERS === "true",

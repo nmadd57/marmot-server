@@ -44,7 +44,7 @@ function formatSseEnvelope(evt: ServerEvent, _accountPubkey: string): object | n
     const senderNpub = hexToNpub(evt.message.sender);
     const envelope: SignalEnvelope = {
       source: senderNpub,
-      sourceNumber: senderNpub,  // npub used as identifier (matches SIGNAL_ALLOWED_USERS format)
+      sourceNumber: senderNpub,  // npub used as identifier (matches ALLOWED_USERS format)
       sourceDevice: 1,
       timestamp: ts,
       dataMessage: {
@@ -197,7 +197,7 @@ export async function signalRoutes(
           }
 
           // SIGNAL_ALLOW_ALL_USERS=true bypasses sender filtering entirely.
-          // Otherwise: if SIGNAL_ALLOWED_USERS is set, enforce it; if unset,
+          // Otherwise: if ALLOWED_USERS is set, enforce it; if unset,
           // unknown senders are dropped (explicit allowlist required).
           if (!config.allowAllUsers) {
             if (!config.allowedUsers.includes(evt.message.sender)) return;

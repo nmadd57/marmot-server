@@ -32,11 +32,11 @@ services:
 
       # hermes-agent access control (mirrors TELEGRAM_ALLOWED_USERS pattern):
       #
-      # SIGNAL_ALLOWED_USERS: comma-separated npubs/hex pubkeys allowed to send
+      # ALLOWED_USERS: comma-separated npubs/hex pubkeys allowed to send
       # messages to the agent. When set, all other senders are silently dropped.
       # When unset, unknown senders are also dropped — use SIGNAL_ALLOW_ALL_USERS
       # to open access without an explicit list.
-      # SIGNAL_ALLOWED_USERS: "npub1...,npub1..."
+      # ALLOWED_USERS: "npub1...,npub1..."
       #
       # SIGNAL_ALLOW_ALL_USERS: set to "true" to forward all messages through the
       # SSE stream. Required when hermes-agent (or another client) does its own
